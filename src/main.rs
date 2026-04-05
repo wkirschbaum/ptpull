@@ -31,10 +31,33 @@ async fn main() -> Result<()> {
             .init();
     }
 
-    let dest_dir = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    let args: Vec<String> = std::env::args().collect();
+    let mut dest_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut manual_ip: Option<std::net::Ipv4Addr> = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--ip" | "-i" => {
+                i += 1;
+                if i < args.len() {
+                    manual_ip = Some(args[i].parse().expect("invalid IP address"));
+                }
+            }
+            "--help" | "-h" => {
+                eprintln!("Usage: ptpull [OPTIONS] [DEST_DIR]");
+                eprintln!();
+                eprintln!("Options:");
+                eprintln!("  -i, --ip <ADDR>  Connect directly to camera IP (skip discovery)");
+                eprintln!("  -h, --help       Show this help");
+                std::process::exit(0);
+            }
+            other => {
+                dest_dir = PathBuf::from(other);
+            }
+        }
+        i += 1;
+    }
 
     // Ensure dest dir exists
     tokio::fs::create_dir_all(&dest_dir).await?;
@@ -46,7 +69,7 @@ async fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_app(&mut terminal, dest_dir).await;
+    let result = run_app(&mut terminal, dest_dir, manual_ip).await;
 
     // Restore terminal
     disable_raw_mode()?;
@@ -63,6 +86,7 @@ async fn main() -> Result<()> {
 async fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     dest_dir: PathBuf,
+    manual_ip: Option<std::net::Ipv4Addr>,
 ) -> Result<()> {
     let mut app = App::new(dest_dir);
     let mut events = EventReader::new(Duration::from_millis(200));
@@ -70,9 +94,20 @@ async fn run_app(
     // Channel for async operations to send updates back
     let (action_tx, mut action_rx) = mpsc::unbounded_channel::<Action>();
 
-    // Start initial discovery
-    start_discovery(&action_tx);
-    app.discovering = true;
+    if let Some(ip) = manual_ip {
+        // Skip discovery, connect directly
+        let camera_info = ptpull::camera::types::CameraInfo {
+            ip,
+            port: ptpull::protocol::ptp_ip::PTP_IP_PORT,
+            device_info: None,
+        };
+        app.status_message = Some(format!("Connecting to {ip}..."));
+        start_connect(camera_info, &action_tx);
+    } else {
+        // Start SSDP discovery
+        start_discovery(&action_tx);
+        app.discovering = true;
+    }
 
     loop {
         terminal.draw(|f| ui::draw(f, &app))?;
