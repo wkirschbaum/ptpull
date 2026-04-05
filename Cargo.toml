@@ -2,7 +2,7 @@
 name = "ptpull"
 version = "0.1.0"
 edition = "2024"
-description = "WiFi camera photo transfer via PTP/IP"
+description = "WiFi camera photo transfer via DLNA/UPnP"
 license = "MIT"
 
 [lib]
@@ -14,39 +14,9 @@ name = "ptpull"
 path = "src/main.rs"
 
 [dependencies]
-# TUI
-ratatui = "0.29"
-crossterm = "0.28"
-
-# Async
 tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-
-# Binary protocol
-binrw = "0.14"
-bytes = "1"
-
-# Network
-socket2 = "0.5"
-futures-util = { version = "0.3", features = ["sink"] }
-
-# Error handling
-anyhow = "1"
-thiserror = "2"
-
-# Logging
-tracing = "0.1"
-tracing-subscriber = "0.3"
-
-# HTTP (Sony Camera Remote API)
-reqwest = { version = "0.12", features = ["json", "stream"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+futures-util = "0.3"
+reqwest = { version = "0.12", features = ["stream"] }
 roxmltree = "0.20"
-
-# Misc
-uuid = { version = "1", features = ["v4"] }
+anyhow = "1"
 dirs = "6"
-
-[dev-dependencies]
-tempfile = "3"

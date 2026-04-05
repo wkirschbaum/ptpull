@@ -2,53 +2,52 @@
 
 ## Project Overview
 
-**ptpull** — a Rust TUI tool for transferring photos/videos from WiFi-enabled cameras.
+**ptpull** — a Rust CLI tool for downloading photos/videos from WiFi cameras via DLNA/UPnP.
 
 ## Target Camera
 
 **Sony DSC-RX10M4 (RX10 IV)**
-- WiFi mode: Camera creates its own AP (SSID: `DIRECT-xxxx:DSC-RX10M4`)
-- Protocol: Sony Camera Remote API (JSON-RPC over HTTP), NOT PTP-IP
-- Camera IP when connected to its AP: `192.168.122.1:8080`
-- API base: `http://192.168.122.1:8080/sony`
-- Endpoints: `/sony/camera`, `/sony/avContent`, `/sony/system`
-- Must call `setCameraFunction("Contents Transfer")` before browsing files
-- File listing via `getContentList` with pagination (100 items per page)
-- Downloads are plain HTTP GET to URLs from content list
-- "Send to Computer" mode: camera joins existing WiFi, needs receiver service
+- WiFi mode: Camera creates its own AP (SSID: `DIRECT-sBC3:DSC-RX10M4`)
+- Protocol: DLNA/UPnP ContentDirectory (SOAP/XML over HTTP)
+- Camera IP on its AP: `192.168.122.1`
+- DLNA port: `64321` (discovered via SSDP NOTIFY)
+- Device description: `http://192.168.122.1:64321/dd.xml`
+- ContentDirectory control: `/upnp/control/ContentDirectory`
+- File downloads: plain HTTP GET to URLs from DIDL-Lite `<res>` elements
+- Camera must be in "Send to Smartphone" mode with images selected
 
 ## Architecture
 
-Two protocol backends:
-1. **PTP-IP** (`src/protocol/`, `src/transport/`, `src/camera/`) — for Nikon/Canon cameras
-2. **Sony Camera Remote API** (`src/sony/`) — HTTP JSON-RPC for Sony cameras
-
-TUI in `src/tui/` using ratatui with Elm architecture (app state, events, render).
+```
+src/
+  lib.rs              # exports dlna + wifi
+  main.rs             # CLI entry point, headless DLNA pull
+  dlna/
+    discovery.rs      # fetch dd.xml, parse control URL
+    browse.rs         # SOAP Browse, DIDL-Lite parsing, file download
+  wifi.rs             # nmcli WiFi switching (save/restore)
+```
 
 ## Commands
 
 ```bash
 cargo build           # Build
-cargo test            # All tests (unit + integration with mock camera)
-cargo test --lib      # Unit tests only
+cargo test            # Unit tests
 cargo clippy          # Lint
 cargo fmt             # Format
 
-# Run
-cargo run -- [dest_dir]              # With SSDP discovery
-cargo run -- --ip 192.168.122.1      # Direct IP connection
+# Run directly
+cargo run -- --dlna http://192.168.122.1:64321 ~/Pictures
+
+# Via shell script (handles WiFi switching)
+./pull-photos.sh [dest_dir]
 ```
-
-## Testing
-
-Integration tests use a mock PTP-IP camera server in `tests/mock_camera.rs`.
-Sony API testing requires connecting to the camera's WiFi AP.
 
 ## Key Dependencies
 
-- `ratatui` / `crossterm` — TUI
 - `tokio` — async runtime
-- `binrw` — PTP-IP binary protocol parsing
-- `reqwest` / `serde_json` — Sony HTTP API
-- `roxmltree` — Sony device description XML parsing
-- `socket2` — SSDP multicast
+- `reqwest` — HTTP client (SOAP requests + file downloads)
+- `roxmltree` — XML parsing (dd.xml + DIDL-Lite)
+- `serde` / `serde_json` — serialization
+- `tracing` — logging to ptpull.log
+- `dirs` — home directory expansion
