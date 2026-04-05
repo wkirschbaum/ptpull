@@ -46,6 +46,7 @@ roxmltree = "0.20"
 
 # Misc
 uuid = { version = "1", features = ["v4"] }
+dirs = "6"
 
 [dev-dependencies]
 tempfile = "3"

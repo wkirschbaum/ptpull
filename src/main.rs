@@ -34,6 +34,9 @@ async fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     let mut dest_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let mut manual_ip: Option<std::net::Ipv4Addr> = None;
+    let mut sony_mode = false;
+    let mut camera_ssid: Option<String> = None;
+    let mut camera_password: Option<String> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -44,19 +47,100 @@ async fn main() -> Result<()> {
                     manual_ip = Some(args[i].parse().expect("invalid IP address"));
                 }
             }
+            "--sony" | "-s" => {
+                sony_mode = true;
+            }
+            "--ssid" => {
+                i += 1;
+                if i < args.len() {
+                    camera_ssid = Some(args[i].clone());
+                    sony_mode = true;
+                }
+            }
+            "--password" | "-p" => {
+                i += 1;
+                if i < args.len() {
+                    camera_password = Some(args[i].clone());
+                }
+            }
             "--help" | "-h" => {
                 eprintln!("Usage: ptpull [OPTIONS] [DEST_DIR]");
                 eprintln!();
                 eprintln!("Options:");
-                eprintln!("  -i, --ip <ADDR>  Connect directly to camera IP (skip discovery)");
-                eprintln!("  -h, --help       Show this help");
+                eprintln!("  -i, --ip <ADDR>    Connect directly to camera IP (skip discovery)");
+                eprintln!(
+                    "  -s, --sony         Sony mode: scan for camera WiFi AP, connect, transfer, restore"
+                );
+                eprintln!(
+                    "      --ssid <SSID>  Connect to specific camera WiFi SSID (implies --sony)"
+                );
+                eprintln!("  -p, --password <PW>  WiFi password for camera AP");
+                eprintln!("  -h, --help         Show this help");
                 std::process::exit(0);
             }
             other => {
-                dest_dir = PathBuf::from(other);
+                // Expand ~ to home directory
+                let path = if let Some(rest) = other.strip_prefix("~/") {
+                    dirs::home_dir()
+                        .unwrap_or_else(|| PathBuf::from("."))
+                        .join(rest)
+                } else if other == "~" {
+                    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
+                } else {
+                    PathBuf::from(other)
+                };
+                dest_dir = path;
             }
         }
         i += 1;
+    }
+
+    // Sony WiFi AP mode: connect to camera's WiFi, remember original
+    let mut wifi_manager = None;
+    if sony_mode {
+        use ptpull::wifi::WifiManager;
+
+        if !WifiManager::is_available() {
+            eprintln!("Error: nmcli not found. Install NetworkManager for WiFi switching.");
+            std::process::exit(1);
+        }
+
+        let mut wm = WifiManager::new();
+        let ssid = if let Some(ssid) = camera_ssid {
+            ssid
+        } else {
+            eprintln!("Scanning for camera WiFi networks...");
+            let found = WifiManager::scan_for_camera();
+            if found.is_empty() {
+                eprintln!("No camera WiFi networks found. Make sure the camera's WiFi is on.");
+                eprintln!("You can also specify the SSID manually: ptpull --ssid DIRECT-xxxx");
+                std::process::exit(1);
+            }
+            if found.len() == 1 {
+                eprintln!("Found camera WiFi: {}", found[0]);
+                found[0].clone()
+            } else {
+                eprintln!("Found multiple camera WiFi networks:");
+                for (i, s) in found.iter().enumerate() {
+                    eprintln!("  {}: {s}", i + 1);
+                }
+                eprintln!("Use --ssid to specify which one.");
+                std::process::exit(1);
+            }
+        };
+
+        eprintln!("Connecting to {ssid}...");
+        if !wm.connect_to_camera(&ssid, camera_password.as_deref()) {
+            eprintln!("Failed to connect to {ssid}");
+            eprintln!("If the camera requires a password (shown on camera screen), use:");
+            eprintln!("  ptpull --ssid \"{ssid}\" --password <PASSWORD>");
+            std::process::exit(1);
+        }
+        eprintln!("Connected! Will restore original WiFi when done.");
+
+        // Sony cameras on their own AP are at a known IP
+        manual_ip = Some(std::net::Ipv4Addr::new(192, 168, 122, 1));
+        wifi_manager = Some(wm);
     }
 
     // Ensure dest dir exists
@@ -78,6 +162,12 @@ async fn main() -> Result<()> {
 
     if let Err(ref e) = result {
         eprintln!("Error: {e:?}");
+    }
+
+    // Restore original WiFi (Drop also handles this, but be explicit)
+    if let Some(mut wm) = wifi_manager {
+        eprintln!("Restoring original WiFi...");
+        wm.restore_wifi();
     }
 
     Ok(())
