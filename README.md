@@ -4,6 +4,17 @@ Download photos from WiFi-enabled cameras via DLNA/UPnP.
 
 Connects to a camera's WiFi, browses its media library, and downloads all files organized into date folders. Handles WiFi switching automatically and restores your connection when done, even on Ctrl+C.
 
+## How it works
+
+The camera acts as a WiFi Direct access point and runs a DLNA/UPnP MediaServer. ptpull uses:
+
+1. **SSDP** — discovers the camera's DLNA service (one-time setup)
+2. **UPnP Device Description** — fetches `dd.xml` to find the ContentDirectory control URL
+3. **SOAP/XML** — sends `Browse` requests to the ContentDirectory service to enumerate files
+4. **HTTP GET** — downloads photos from URLs provided in the DIDL-Lite browse results
+
+No proprietary protocols. No app pairing. Just standard UPnP/DLNA over plain HTTP.
+
 ## Install
 
 ```bash
@@ -86,6 +97,27 @@ You need to find your camera's DLNA URL once:
 - Second Ctrl+C: force quits immediately
 - Panics/crashes: WiFi is restored via Drop handler
 - The program always cleans up the temporary `ptpull-camera` network profile
+
+## Performance
+
+Tested with a Sony RX10 IV over WiFi Direct, downloading 14 JPEGs (7-17 MB each, ~156 MB total):
+
+- **~4 MB/s** sustained throughput
+- **~2-3 seconds** per file
+- **0ms gap** between files (HTTP connection reuse)
+- **~40 seconds** total for 14 files
+
+The bottleneck is the camera's WiFi Direct radio, not the software. For comparison:
+
+| Method | Speed | 10 MB photo |
+|---|---|---|
+| WiFi Direct (ptpull) | ~4 MB/s | ~2.5s |
+| USB cable | ~30 MB/s | ~0.3s |
+| SD card reader | ~90 MB/s | ~0.1s |
+
+The software side is optimised with TCP_NODELAY, connection keep-alive, 256 KB buffered writes, and HTTP connection pooling. There is zero idle time between file downloads — the next request starts as soon as the previous file finishes writing.
+
+WiFi is the convenient option when you don't want to remove the SD card. For bulk transfers of hundreds of photos, a card reader is faster.
 
 ## Tested cameras
 
