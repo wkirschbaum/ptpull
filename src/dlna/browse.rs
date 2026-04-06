@@ -2,7 +2,7 @@ use std::path::Path;
 
 use reqwest::Client;
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, BufWriter};
 
 use super::discovery::DlnaDevice;
 
@@ -85,6 +85,9 @@ impl DlnaBrowser {
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
+                .tcp_keepalive(std::time::Duration::from_secs(30))
+                .tcp_nodelay(true)
+                .pool_max_idle_per_host(2)
                 .build()
                 .expect("build reqwest client"),
             device,
@@ -214,16 +217,17 @@ impl DlnaBrowser {
         }
 
         let resp = self.client.get(&resource.url).send().await?;
-        let mut file = fs::File::create(&dest_path).await?;
+        let file = fs::File::create(&dest_path).await?;
+        let mut writer = BufWriter::with_capacity(256 * 1024, file);
 
         let mut stream = resp.bytes_stream();
         use futures_util::StreamExt;
         while let Some(chunk) = stream.next().await {
             let chunk = chunk?;
-            file.write_all(&chunk).await?;
+            writer.write_all(&chunk).await?;
         }
 
-        file.flush().await?;
+        writer.flush().await?;
 
         Ok(Some(dest_path))
     }
