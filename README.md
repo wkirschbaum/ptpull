@@ -51,17 +51,34 @@ ptpull --ssid "DIRECT-xxxx:YourCamera" --password "secret" \
        --dlna http://192.168.122.1:64321 ~/Pictures/Camera
 ```
 
-## Finding your camera's details
+## Camera setup
 
-1. On your camera, enable WiFi / "Send to Smartphone" mode
-2. Note the **SSID** and **password** shown on the camera screen
-3. Connect to the camera WiFi manually once
-4. Find the DLNA port with SSDP:
+### Before each transfer
+
+1. Turn on your camera
+2. Go to **Menu > Network** (or wireless icon)
+3. Select **Send to Smartphone**
+4. Choose **Select on This Device**
+5. Select the photos you want to transfer (or select all)
+6. The camera will show "Connecting..." and display its **SSID** and **password**
+7. Run `ptpull` (or your `pull-photos.sh` script)
+
+The camera's WiFi stays active until you cancel on the camera or it times out.
+
+### First-time setup
+
+You need to find your camera's DLNA URL once:
+
+1. On the camera, start **Send to Smartphone** as above
+2. On your computer, connect to the camera's WiFi manually (note the SSID and password)
+3. Find the DLNA port using SSDP:
    ```bash
    echo -e 'M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\nMAN: "ssdp:discover"\r\nMX: 3\r\nST: ssdp:all\r\n\r\n' \
      | socat - UDP4-DATAGRAM:239.255.255.250:1900,so-broadcast,ip-add-membership=239.255.255.250:0.0.0.0
    ```
-5. Look for `LOCATION: http://<IP>:<PORT>/dd.xml` in the response — the `http://<IP>:<PORT>` part is your `--dlna` URL
+4. Look for `LOCATION: http://<IP>:<PORT>/dd.xml` in the response
+5. The `http://<IP>:<PORT>` part is your `--dlna` URL
+6. Create your `pull-photos.sh` script with the SSID, password, and DLNA URL
 
 ## WiFi safety
 
