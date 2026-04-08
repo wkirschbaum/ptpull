@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use anyhow::Result;
-use ptpull::dlna::browse::{DlnaBrowser, format_bytes};
+use ptpull::dlna::browse::{DlnaBrowser, format_bytes, format_duration};
 use ptpull::dlna::discovery;
 
 static WIFI_NEEDS_RESTORE: AtomicBool = AtomicBool::new(false);
@@ -173,8 +173,12 @@ async fn run_pull(base_url: &str, dest_dir: &Path) -> Result<()> {
     let total_count = files.len();
     let started = Instant::now();
     let mut downloaded_bytes: u64 = 0;
+    let mut skipped_bytes: u64 = 0;
     let mut downloaded_count: u64 = 0;
     let mut skipped_count: u64 = 0;
+
+    // Seed with known camera WiFi cap (~4 MB/s) so ETA is useful from the first file
+    const CAMERA_WIFI_SPEED_SEED: f64 = 4.0 * 1024.0 * 1024.0;
 
     for (idx, item) in files.iter().enumerate() {
         let name = item.filename();
@@ -183,13 +187,15 @@ async fn run_pull(base_url: &str, dest_dir: &Path) -> Result<()> {
         let file_dest = dest_dir.join(&date_folder);
         tokio::fs::create_dir_all(&file_dest).await?;
 
+        let item_size = item.best_resource().map(|r| r.size).unwrap_or(0);
         match browser.download(item, &file_dest).await {
             Ok(Some(_)) => {
                 downloaded_count += 1;
-                downloaded_bytes += item.best_resource().map(|r| r.size).unwrap_or(0);
+                downloaded_bytes += item_size;
             }
             Ok(None) => {
                 skipped_count += 1;
+                skipped_bytes += item_size;
             }
             Err(e) => {
                 eprintln!("\rERROR {date_folder}/{name}: {e}                    ");
@@ -197,25 +203,26 @@ async fn run_pull(base_url: &str, dest_dir: &Path) -> Result<()> {
         }
 
         let elapsed = started.elapsed().as_secs_f64();
-        let speed = if elapsed > 0.1 {
-            downloaded_bytes as f64 / elapsed
+        let speed = if elapsed > 0.5 && downloaded_bytes > 0 {
+            // Blend measured speed with seed: seed weight fades as data accumulates
+            let measured = downloaded_bytes as f64 / elapsed;
+            let seed_weight = (1.0 - (downloaded_bytes as f64 / (10.0 * 1024.0 * 1024.0))).max(0.0);
+            measured * (1.0 - seed_weight) + CAMERA_WIFI_SPEED_SEED * seed_weight
         } else {
-            0.0
+            CAMERA_WIFI_SPEED_SEED
         };
-        let remaining = total_bytes.saturating_sub(downloaded_bytes);
-        let eta = if speed > 0.0 {
-            remaining as f64 / speed
-        } else {
-            0.0
-        };
+        // Remaining = total minus what we've already accounted for (downloaded + skipped)
+        let remaining = total_bytes.saturating_sub(downloaded_bytes + skipped_bytes);
+        let eta_secs = remaining as f64 / speed;
+        let eta_str = format_duration(eta_secs);
         eprint!(
-            "\r[{}/{}] {}/{} {}/s ETA {:.0}s | {} done, {} skip   ",
+            "\r[{}/{}] {}/{} {}/s ETA {} | {} done, {} skip   ",
             idx + 1,
             total_count,
             format_bytes(downloaded_bytes),
             format_bytes(total_bytes),
             format_bytes(speed as u64),
-            eta,
+            eta_str,
             downloaded_count,
             skipped_count,
         );

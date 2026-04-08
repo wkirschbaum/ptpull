@@ -5,7 +5,6 @@ use reqwest::Client;
 #[derive(Debug, Clone)]
 pub struct DlnaDevice {
     pub friendly_name: String,
-    pub manufacturer: String,
     pub model_name: String,
     pub base_url: String,
     pub content_directory_control_url: String,
@@ -34,16 +33,12 @@ fn parse_device_description(xml: &str, base_url: &str) -> anyhow::Result<DlnaDev
     let doc = roxmltree::Document::parse(xml)?;
 
     let mut friendly_name = String::new();
-    let mut manufacturer = String::new();
     let mut model_name = String::new();
     let mut content_directory_control_url = String::new();
 
     for node in doc.descendants() {
         if node.has_tag_name("friendlyName") {
             friendly_name = node.text().unwrap_or("").to_string();
-        }
-        if node.has_tag_name("manufacturer") {
-            manufacturer = node.text().unwrap_or("").to_string();
         }
         if node.has_tag_name("modelName") {
             model_name = node.text().unwrap_or("").to_string();
@@ -84,7 +79,6 @@ fn parse_device_description(xml: &str, base_url: &str) -> anyhow::Result<DlnaDev
 
     Ok(DlnaDevice {
         friendly_name,
-        manufacturer,
         model_name,
         base_url: base_url.to_string(),
         content_directory_control_url,

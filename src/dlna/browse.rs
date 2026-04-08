@@ -346,6 +346,20 @@ fn parse_didl_lite(xml: &str) -> anyhow::Result<Vec<DlnaItem>> {
     Ok(items)
 }
 
+pub fn format_duration(secs: f64) -> String {
+    if secs < 60.0 {
+        format!("{:.0}s", secs)
+    } else if secs < 3600.0 {
+        format!("{}m {:02}s", secs as u64 / 60, secs as u64 % 60)
+    } else {
+        format!(
+            "{}h {:02}m",
+            secs as u64 / 3600,
+            (secs as u64 % 3600) / 60
+        )
+    }
+}
+
 pub fn format_bytes(bytes: u64) -> String {
     let b = bytes as f64;
     if b < 1024.0 {
